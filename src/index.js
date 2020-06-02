@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
-* File Name   : bundler.js
+* File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-06-01
+* Updated at  : 2020-06-02
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -200,6 +200,13 @@ class JeefoBundler extends AsyncEventEmitter {
         return this.db;
     }
 
+    close_db () {
+        clearTimeout(this.timeout_id);
+        this.timeout_id = setTimeout(() => {
+            this.db = null;
+        }, 3000);
+    }
+
     async resolve_path (filepath) {
         if (filepath.startsWith(".")) {
             return await resolve_relative_path(this.include_dirs, filepath);
@@ -252,6 +259,7 @@ class JeefoBundler extends AsyncEventEmitter {
             //console.log("Same:", relative_path);
             const filepath = path.join(this.cache_dir, relative_path);
             module.content = await fs.readFile(filepath, "utf8");
+            this.close_db();
         }
 
         return module;
@@ -272,15 +280,8 @@ class JeefoBundler extends AsyncEventEmitter {
         }
         db[relative_path] = module_info;
 
-        await this.store_db();
-    }
-
-    async store_db () {
-        await fs.save_json(this.db_path, this.db);
-        clearTimeout(this.timeout_id);
-        this.timeout_id = setTimeout(() => {
-            this.db = null;
-        }, 3000);
+        await fs.save_json(this.db_path, db);
+        this.close_db();
     }
 
     async bundle () {
