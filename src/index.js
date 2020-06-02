@@ -336,6 +336,7 @@ class JeefoBundler extends AsyncEventEmitter {
         }
         await fs.unlink(this.db_path);
         await remove_empty_dirs(this.cache_dir);
+        this.db = null;
     }
 }
 
