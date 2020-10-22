@@ -1,9 +1,9 @@
 {
     "name": "@jeefo/bundler",
-    "version": "0.0.4",
+    "version": "0.0.6",
     "homepage": "https://github.com/je3f0o/jeefo_bundler",
     "copyright": "2020",
-    "description": "part of jeefo framework",
+    "description": "Back-end library for jeefo framework. (under developing...)",
     "author": {
         "name": "je3f0o",
         "email": "je3f0o@gmail.com"
@@ -26,6 +26,8 @@
     ],
     "dependencies": {},
     "devDependencies": {
-        "@jeefo/publish": "0.0.31"
+        "@jeefo/fs": "0.0.3",
+        "@jeefo/publish": "0.0.31",
+        "@jeefo/utils": "0.0.9"
     }
 }

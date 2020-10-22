@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-06-02
+* Updated at  : 2020-10-23
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -65,6 +65,20 @@ const resolve_path = async (filepath, base_dir) => {
             absolute_path : filepath,
             relative_path : path.relative(base_dir, filepath)
         };
+    }
+};
+
+const resolve_absolute_path = async (include_dirs, node_modules, filepath) => {
+    for (const {root_dir, packages} of node_modules) {
+        const base_dir = `${root_dir}/node_modules`;
+        for (const pkg of packages) {
+            if (filepath.startsWith(`${base_dir}/${pkg}`))
+                return resolve_path(filepath, base_dir);
+        }
+    }
+
+    for (const dir of include_dirs) {
+        if (filepath.startsWith(dir)) return resolve_path(filepath, dir);
     }
 };
 
@@ -208,55 +222,51 @@ class JeefoBundler extends AsyncEventEmitter {
     }
 
     async resolve_path (filepath) {
-        if (filepath.startsWith(".")) {
-            return await resolve_relative_path(this.include_dirs, filepath);
-        } else if (! filepath.startsWith("node_modules/")) {
+        if (filepath.charAt(0) === '/') {
+            return await resolve_absolute_path(
+                this.include_dirs,
+                this.node_modules,
+                filepath
+            );
+        }
+        const result = await resolve_relative_path(this.include_dirs, filepath);
+        if (result) return result;
+
+        if (! filepath.startsWith("node_modules/")) {
             filepath = `node_modules/${filepath}`;
         }
-
         return await resolve_node_package(this.node_modules, filepath);
     }
 
-    async get_module (filepath) {
-        const resolved_paths = await this.resolve_path(filepath);
-        if (! resolved_paths) { return null; }
+    async is_updated ({relative_path, absolute_path}) {
+        const db     = await this.load_db();
+        const module = db[relative_path];
+        if (! module) return true;
 
-        const module = { paths : resolved_paths };
-        const {
-            absolute_path, relative_path
-        } = resolved_paths;
-
-        const db    = await this.load_db();
-        const info  = db[relative_path] || {};
         const stats = await fs.stat(absolute_path);
+        const mtime = new Date(module.mtime).getTime();
+        if (mtime !== stats.mtime.getTime()) return true;
 
-        module.mtime = new Date(info.mtime);
-
-        let is_updated = false;
-        if (stats.mtime.getTime() !== module.mtime.getTime()) {
-            is_updated = true;
-        } else if (info.dependencies) {
-            for (const dep of info.dependencies) {
-                const dep_info = db[dep];
-                const {absolute_path} = await this.resolve_path(dep);
-                const dep_stats = await fs.stat(absolute_path);
-                const dep_mtime = new Date(dep_info.mtime);
-                if (dep_mtime.getTime() !== dep_stats.mtime.getTime()) {
-                    is_updated = true;
-                    break;
-                }
+        if (module.dependencies) {
+            for (const dep of module.dependencies) {
+                const paths = await this.resolve_path(dep);
+                if (await this.is_updated(paths)) return true;
             }
         }
+    }
 
-        if (is_updated) {
-            //console.log("Updated:", relative_path);
-            module.mtime   = stats.mtime;
+    async get_module (filepath) {
+        const paths = await this.resolve_path(filepath);
+        const {absolute_path, relative_path} = paths;
+
+        const module = {paths};
+        if (await this.is_updated(paths)) {
+            module.mtime   = (await fs.stat(absolute_path)).mtime;
             module.content = await fs.readFile(absolute_path, "utf8");
 
             await this.emit("file_updated", module);
             await this.save_module(relative_path, module);
         } else {
-            //console.log("Same:", relative_path);
             const filepath = path.join(this.cache_dir, relative_path);
             module.content = await fs.readFile(filepath, "utf8");
             this.close_db();
