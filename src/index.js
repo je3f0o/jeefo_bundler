@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-10-23
+* Updated at  : 2020-10-24
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -326,7 +326,7 @@ class JeefoBundler extends AsyncEventEmitter {
         const result = {
             content : contents.map(c=>c.content).join("\n\n")
         };
-        this.emit("before_write", result);
+        await this.emit("before_write", result);
 
         await fs.ensure_dir(this.output_dir);
         await fs.writeFile(
