@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-10-24
+* Updated at  : 2020-10-27
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -110,18 +110,18 @@ const find_by_pkg_name = filepath => {
 const resolve_node_package = async (node_modules, pkg_path) => {
     for (const {root_dir, packages} of node_modules) {
         const pgk = packages.find(find_by_pkg_name(pkg_path));
-        if (! pgk) { continue; }
+        if (! pgk) continue;
 
         const absolute_path  = path.resolve(root_dir, pkg_path);
         const resolved_paths = await resolve_path(absolute_path, root_dir);
-        if (resolved_paths) { return resolved_paths; }
+        if (resolved_paths) return resolved_paths;
 
         for (const suffix of suffixes) {
             const extented_path  = `${absolute_path}${suffix}`;
             const resolved_paths = await resolve_path(
                 extented_path, root_dir
             );
-            if (resolved_paths) { return resolved_paths; }
+            if (resolved_paths) return resolved_paths;
         }
     }
 
@@ -257,9 +257,15 @@ class JeefoBundler extends AsyncEventEmitter {
 
     async get_module (filepath) {
         const paths = await this.resolve_path(filepath);
+        if (! paths) {
+            const error = new Error(`Not found: '${filepath}'`);
+            error.code = "ENOINT";
+            throw error;
+        }
+        const dependencies                   = [];
         const {absolute_path, relative_path} = paths;
 
-        const module = {paths};
+        const module = {paths, dependencies};
         if (await this.is_updated(paths)) {
             module.mtime   = (await fs.stat(absolute_path)).mtime;
             module.content = await fs.readFile(absolute_path, "utf8");
@@ -284,7 +290,7 @@ class JeefoBundler extends AsyncEventEmitter {
 
         // Save db
         const db = await this.load_db();
-        const module_info = { mtime : module.mtime.toISOString() };
+        const module_info = {mtime: module.mtime.toISOString()};
         if (module.dependencies.length) {
             module_info.dependencies = module.dependencies;
         }
