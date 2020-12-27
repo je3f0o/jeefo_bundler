@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-11-24
+* Updated at  : 2020-12-28
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -72,9 +72,8 @@ const resolve_absolute_path = async (include_dirs, node_modules, filepath) => {
     for (const {root_dir, packages} of node_modules) {
         const base_dir = `${root_dir}/node_modules`;
         for (const pkg of packages) {
-            if (filepath.startsWith(`${base_dir}/${pkg}`)) {
-                return resolve_path(filepath, root_dir);
-            }
+            if (filepath.startsWith(`${base_dir}/${pkg}`))
+                return resolve_path(filepath, base_dir);
         }
     }
 
@@ -275,6 +274,8 @@ class JeefoBundler extends AsyncEventEmitter {
             await this.save_module(relative_path, module);
         } else {
             const filepath = path.join(this.cache_dir, relative_path);
+            const db       = await this.load_db();
+            module.mtime   = new Date(db[relative_path].mtime);
             module.content = await fs.readFile(filepath, "utf8");
             this.close_db();
         }
