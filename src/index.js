@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2020-12-28
+* Updated at  : 2021-01-09
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -347,6 +347,8 @@ class JeefoBundler extends AsyncEventEmitter {
     }
 
     async clear () {
+        if (! await fs.exists(this.cache_dir)) return;
+
         const paths = Object.keys(await this.load_db());
         for (const relative_path of paths) {
             const filepath = path.join(this.cache_dir, relative_path);
