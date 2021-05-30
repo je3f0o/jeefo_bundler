@@ -1,7 +1,7 @@
 /* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
 * File Name   : index.js
 * Created at  : 2020-05-27
-* Updated at  : 2021-01-09
+* Updated at  : 2021-05-31
 * Author      : jeefo
 * Purpose     :
 * Description :
@@ -15,15 +15,19 @@
 
 // ignore:end
 
-const path              = require("path");
-const assert            = require("assert");
-const readline          = require("readline");
-const fs                = require("@jeefo/fs");
-const string_format     = require("@jeefo/utils/string/format");
-const AsyncEventEmitter = require("@jeefo/utils/async/event_emitter");
+const path               = require("path");
+const assert             = require("assert");
+const readline           = require("readline");
+const fs                 = require("@jeefo/fs");
+const string_format      = require("@jeefo/utils/string/format");
+const AsyncEventEmitter  = require("@jeefo/utils/async/event_emitter");
+const {
+    from_node_module,
+    from_remote_filepath,
+} = require("./module");
 
 const error_msg = (arg_name, type) =>
-    `[Invalid argument]: new JeefoModule(${arg_name}: ${type})`;
+    `[Invalid argument]: new JeefoBundler(${arg_name}: ${type})`;
 
 const error_str   = prop => error_msg(`config.${prop}`, "string");
 const error_array = prop => error_msg(`config.${prop}`, "Array");
@@ -32,101 +36,10 @@ const is_array  = Array.isArray;
 const is_object = v => typeof v === "object" && v !== null;
 const is_string = v => typeof v === "string";
 
-const suffixes = [".js", ".json", "/index.js", "/index.json"];
-
 const cyan     = '\x1b[36m';
 const green    = '\x1b[32m';
 const reset    = '\x1b[0m';
 const {stdout} = process;
-
-/*
-class JeefoModule {
-    constructor (path) {
-        this.path         = path;
-        this.dependencies = [];
-
-        return new Promise (async (resolve, reject) => {
-            const stat = await fs.stat(path);
-
-
-        });
-    }
-}
-*/
-
-const is_found = async (absolute_path, base_dir) =>
-    absolute_path.startsWith(base_dir) && await fs.is_file(absolute_path);
-
-const resolve_path = async (filepath, base_dir) => {
-    if (await is_found(filepath, base_dir)) {
-        return {
-            root_dir      : base_dir,
-            absolute_dir  : path.dirname(filepath),
-            absolute_path : filepath,
-            relative_path : path.relative(base_dir, filepath)
-        };
-    }
-};
-
-const resolve_absolute_path = async (include_dirs, node_modules, filepath) => {
-    for (const {root_dir, packages} of node_modules) {
-        const base_dir = `${root_dir}/node_modules`;
-        for (const pkg of packages) {
-            if (filepath.startsWith(`${base_dir}/${pkg}`))
-                return resolve_path(filepath, base_dir);
-        }
-    }
-
-    for (const dir of include_dirs) {
-        if (filepath.startsWith(dir)) return resolve_path(filepath, dir);
-    }
-};
-
-const resolve_relative_path = async (include_dirs, relative_path) => {
-    for (const base_dir of include_dirs) {
-        const absolute_path  = path.resolve(base_dir, relative_path);
-        const resolved_paths = await resolve_path(absolute_path, base_dir);
-        if (resolved_paths) { return resolved_paths; }
-
-        for (const suffix of suffixes) {
-            const extented_path  = `${absolute_path}${suffix}`;
-            const resolved_paths = await resolve_path(
-                extented_path, base_dir
-            );
-            if (resolved_paths) { return resolved_paths; }
-        }
-    }
-
-    return null;
-};
-
-const find_by_pkg_name = filepath => {
-    if (filepath.startsWith("node_modules/")) {
-        filepath = filepath.slice("node_modules/".length);
-    }
-    return pkg_name => filepath.startsWith(pkg_name);
-};
-
-const resolve_node_package = async (node_modules, pkg_path) => {
-    for (const {root_dir, packages} of node_modules) {
-        const pgk = packages.find(find_by_pkg_name(pkg_path));
-        if (! pgk) continue;
-
-        const absolute_path  = path.resolve(root_dir, pkg_path);
-        const resolved_paths = await resolve_path(absolute_path, root_dir);
-        if (resolved_paths) return resolved_paths;
-
-        for (const suffix of suffixes) {
-            const extented_path  = `${absolute_path}${suffix}`;
-            const resolved_paths = await resolve_path(
-                extented_path, root_dir
-            );
-            if (resolved_paths) return resolved_paths;
-        }
-    }
-
-    return null;
-};
 
 const remove_empty_dirs = async dirname => {
     let files = await fs.readdir(dirname);
@@ -189,12 +102,12 @@ class JeefoBundler extends AsyncEventEmitter {
                     output_dir = `${process.env.HOME}/${output_dir.slice(2)}`;
                 }
 
-                this.name         = config.name;
-                this.cache_dir    = path.resolve(config.cache_dir);
-                this.db_path      = `${this.cache_dir}/db.json`;
-                this.output_dir   = path.resolve(output_dir);
-                this.include_dirs = _include_dirs;
-                this.node_modules = _node_modules;
+                this.name                = config.name;
+                this.cache_dir           = path.resolve(config.cache_dir);
+                this.db_path             = `${this.cache_dir}/db.json`;
+                this.output_dir          = path.resolve(output_dir);
+                this.node_modules        = _node_modules;
+                this.include_directories = _include_dirs;
 
                 resolve(this);
             } catch (e) {
@@ -216,36 +129,25 @@ class JeefoBundler extends AsyncEventEmitter {
 
     close_db () {
         clearTimeout(this.timeout_id);
-        this.timeout_id = setTimeout(() => {
-            this.db = null;
-        }, 3000);
+        this.timeout_id = setTimeout(() => this.db = null, 3000);
     }
 
-    async resolve_path (filepath) {
-        if (filepath.charAt(0) === '/') {
-            return await resolve_absolute_path(
-                this.include_dirs,
-                this.node_modules,
-                filepath
-            );
+    async create_module (filepath) {
+        const {include_directories, node_modules} = this;
+        if (filepath.charAt(0) === '.') {
+            return await from_remote_filepath(filepath, include_directories);
         }
-        const result = await resolve_relative_path(this.include_dirs, filepath);
-        if (result) return result;
-
-        if (! filepath.startsWith("node_modules/")) {
-            filepath = `node_modules/${filepath}`;
-        }
-        return await resolve_node_package(this.node_modules, filepath);
+        return await from_node_module(filepath, node_modules);
     }
 
-    async is_updated ({relative_path, absolute_path}) {
-        const db     = await this.load_db();
-        const module = db[relative_path];
-        if (! module) return true;
+    async is_updated (module) {
+        const db         = await this.load_db();
+        const {filepath} = module.path.remote;
 
-        const stats = await fs.stat(absolute_path);
-        const mtime = new Date(module.mtime).getTime();
-        if (mtime !== stats.mtime.getTime()) return true;
+        if (! db[filepath]) return true;
+
+        const mtime = new Date(db[filepath].mtime);
+        if (module.mtime.getTime() !== mtime.getTime()) return true;
 
         if (module.dependencies) {
             for (const dep of module.dependencies) {
@@ -256,26 +158,16 @@ class JeefoBundler extends AsyncEventEmitter {
     }
 
     async get_module (filepath) {
-        const paths = await this.resolve_path(filepath);
-        if (! paths) {
-            const error = new Error(`Not found: '${filepath}'`);
-            error.code = "ENOINT";
-            throw error;
-        }
-        const dependencies                   = [];
-        const {absolute_path, relative_path} = paths;
-
-        const module = {paths, dependencies};
-        if (await this.is_updated(paths)) {
-            module.mtime   = (await fs.stat(absolute_path)).mtime;
-            module.content = await fs.readFile(absolute_path, "utf8");
+        const module = await this.create_module(filepath);
+        await module.load_stat();
+        if (await this.is_updated(module)) {
+            await module.load_content();
 
             await this.emit("file_updated", module);
-            await this.save_module(relative_path, module);
+            await this.save_module(module);
         } else {
-            const filepath = path.join(this.cache_dir, relative_path);
-            const db       = await this.load_db();
-            module.mtime   = new Date(db[relative_path].mtime);
+            const {remote} = module.path;
+            const filepath = path.join(this.cache_dir, remote.filepath);
             module.content = await fs.readFile(filepath, "utf8");
             this.close_db();
         }
@@ -283,9 +175,10 @@ class JeefoBundler extends AsyncEventEmitter {
         return module;
     }
 
-    async save_module (relative_path, module) {
+    async save_module (module) {
+        const {remote} = module.path;
         // Save module
-        const filepath = path.join(this.cache_dir, relative_path);
+        const filepath = path.join(this.cache_dir, remote.filepath);
         const dirname  = path.dirname(filepath);
         await fs.ensure_dir(dirname);
         await fs.writeFile(filepath, module.content, "utf8");
@@ -296,7 +189,7 @@ class JeefoBundler extends AsyncEventEmitter {
         if (module.dependencies.length) {
             module_info.dependencies = module.dependencies;
         }
-        db[relative_path] = module_info;
+        db[remote.filepath] = module_info;
 
         await fs.save_json(this.db_path, db);
         this.close_db();
@@ -304,7 +197,7 @@ class JeefoBundler extends AsyncEventEmitter {
 
     async bundle () {
         const db       = await this.load_db();
-        const paths    = Object.keys(db).filter(path => path.endsWith(".js"));
+        const js_paths = Object.keys(db).filter(path => path.endsWith(".js"));
         const contents = [];
 
         const header = string_format(
@@ -316,15 +209,15 @@ class JeefoBundler extends AsyncEventEmitter {
         let percent_msg = value => string_format(format, value);
         stdout.write(percent_msg(0));
 
-        for (const [index, relative_path] of paths.entries()) {
-            const module   = { path : relative_path };
-            const filepath = path.join(this.cache_dir, relative_path);
+        for (const [index, remote_filepath] of js_paths.entries()) {
+            const module   = { path : remote_filepath };
+            const filepath = path.join(this.cache_dir, remote_filepath);
 
             module.content = await fs.readFile(filepath, "utf8");
             this.emit("bundle", module);
             contents.push(module);
 
-            const percent = Math.floor(((index + 1) / paths.length) * 100);
+            const percent = Math.floor(((index + 1) / js_paths.length) * 100);
             stdout.write(percent_msg(percent));
         }
 
@@ -350,8 +243,8 @@ class JeefoBundler extends AsyncEventEmitter {
         if (! await fs.exists(this.cache_dir)) return;
 
         const paths = Object.keys(await this.load_db());
-        for (const relative_path of paths) {
-            const filepath = path.join(this.cache_dir, relative_path);
+        for (const remote_path of paths) {
+            const filepath = path.join(this.cache_dir, remote_path);
             await fs.unlink(filepath);
         }
         await fs.unlink(this.db_path);
@@ -361,3 +254,24 @@ class JeefoBundler extends AsyncEventEmitter {
 }
 
 module.exports = JeefoBundler;
+
+if (require.main === module) {
+    (async function main () {
+        const b = await new JeefoBundler({
+            name         : "app.min.js",
+            cache_dir    : `${process.cwd()}/.caches/app`,
+            output_dir   : '',
+            include_dirs : [process.cwd()],
+            node_modules : [
+                {
+                    root_dir : '.',
+                    packages : ["@jeefo"]
+                },
+            ],
+        });
+
+        const m = await b.get_module("./src/module");
+        m;//console.log(m);
+        await b.bundle();
+    })().catch(e => console.error(e));
+}
